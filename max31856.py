@@ -21,7 +21,7 @@
 #OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #SOFTWARE.
 
-import time, math
+import time, math, threading
 import RPi.GPIO as GPIO
 
 class max31856(object):
@@ -56,6 +56,8 @@ class max31856(object):
 		#self.writeRegister(1, 0x05) #for R Type
 		#self.writeRegister(1, 0x06) #for S Type
 		#self.writeRegister(1, 0x07) #for T Type
+                self.lastTempC = 0;
+                self.lastJunctionTempC = 0;
 		
 	def setupGPIO(self):
 		GPIO.setwarnings(False)
@@ -101,6 +103,7 @@ class max31856(object):
 			raise FaultError("Overvoltage or Undervoltage Input Fault")
 		if ((fault & 0x01) != 0):
 			raise FaultError("Thermocouple Open-Circuit Fault")
+                self.lastTempC = temp_C
 				
 		return temp_C
 				
@@ -121,6 +124,7 @@ class max31856(object):
 			temp -= 0x4000
 		
 		temp_C = temp * 0.015625
+                self.lastJunctionTempC = temp_C
 		
 		return temp_C
 	
@@ -193,19 +197,40 @@ class max31856(object):
 class FaultError(Exception):
 	pass
 
-	
 if __name__ == "__main__":
 
-	import max31856
+	import max31856,sys
 	csPin = 8
 	misoPin = 9
 	mosiPin = 10
 	clkPin = 11
 	max = max31856.max31856(csPin,misoPin,mosiPin,clkPin)
-	thermoTempC = max.readThermocoupleTemp()
-	thermoTempF = (thermoTempC * 9.0/5.0) + 32
-	print "Thermocouple Temp: %f degF" % thermoTempF
-	juncTempC = max.readJunctionTemp()
-	juncTempF = (juncTempC * 9.0/5.0) + 32
-	print "Cold Junction Temp: %f degF" % juncTempF
-	GPIO.cleanup()
+        thermoTempC = 0
+        thermoTempF = 0
+
+        def maxPollingWorker(sensor):
+            while True:
+                thermoTempC = sensor.readThermocoupleTemp()
+                thermoTempF = (thermoTempC * 9.0/5.0)+32
+                print "Thermocouple Temp: %f defF" % thermoTempF
+                time.sleep(1)
+
+        p=threading.Thread(name="PollingThread",target=maxPollingWorker, args=(max,))
+        p.daemon=True
+        p.start()
+        try:
+            while True:
+                p.join(250)
+                if not p.isAlive():
+                    break
+        except KeyboardInterrupt:
+            print "Cleaining up GPIO and exiting."
+            GPIO.cleanup()
+            sys.exit(0)
+	#thermoTempC = max.readThermocoupleTemp()
+	#thermoTempF = (thermoTempC * 9.0/5.0) + 32
+	#print "Thermocouple Temp: %f degF" % thermoTempF
+	#juncTempC = max.readJunctionTemp()
+	#juncTempF = (juncTempC * 9.0/5.0) + 32
+	#print "Cold Junction Temp: %f degF" % juncTempF
+	#GPIO.cleanup()
