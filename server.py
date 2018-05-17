@@ -1,7 +1,7 @@
 #!/usr/bin/python
 import socket
 import threading
-import SocketServer
+import BaseHTTPServer
 import max31856
 import RPi.GPIO as GPIO
 import sys
@@ -10,16 +10,21 @@ import json
 
 sensors=[]
 
-class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
-	def handle(self):
-                temps = []
-                for sensor in sensors:
-                    temps.append(sensor.lastTempC)
-		response = "{}".format(json.JSONEncoder().encode(temps))
-		self.request.sendall(response)
 
-class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-	pass
+class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    def do_GET(self):
+		temps = {}
+		i=0;
+		for sensor in sensors:
+			temps["zone{}".format(i)] = sensor.lastTempC
+			i=i+1
+		response = "{}".format(json.JSONEncoder().encode(temps))
+		self.send_response(200)
+		self.send_header("Content-Type", "applicaiton/json")
+		self.send_header("Content-Length", str(len(response)))
+		self.end_headers()
+		self.wfile.write(response)
+
 
 def maxPollingWorker(sensors):
 	while True:
@@ -36,7 +41,7 @@ if __name__ == "__main__":
 	# Port 0 means to select an arbitrary unused port
 	HOST, PORT = "localhost", 1856
         GPIO.setmode(GPIO.BCM)
-	server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
+	server = BaseHTTPServer.HTTPServer((HOST, PORT), RequestHandler)
 	ip, port = server.server_address
 
 	# Start a thread with the server -- that thread will then start one
